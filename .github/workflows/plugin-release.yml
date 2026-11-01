@@ -1,0 +1,114 @@
+name: Plugin build & release
+
+on:
+  push:
+    branches: [main]
+    # Documentation-only changes don't produce a new release.
+    paths-ignore:
+      - "**.md"
+      - "docs/**"
+      - ".idea/**"
+  pull_request:
+    paths-ignore:
+      - "**.md"
+      - "docs/**"
+      - ".idea/**"
+  workflow_dispatch:
+
+# Never run two releases at once; PR builds of the same branch replace each other.
+concurrency:
+  group: plugin-${{ github.event_name == 'push' && 'release' || github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+permissions:
+  contents: read
+
+defaults:
+  run:
+    shell: bash
+
+jobs:
+  build:
+    name: Build, test, package
+    runs-on: ubuntu-latest
+    outputs:
+      version: ${{ steps.version.outputs.version }}
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: actions/setup-java@v6
+        with:
+          distribution: temurin
+          java-version: "21"
+
+      # Caches Gradle dependencies, including the downloaded WebStorm used as the build target.
+      - uses: gradle/actions/setup-gradle@v6
+
+      - name: Compute version
+        id: version
+        run: |
+          major_minor=$(grep -E '^pluginMajorMinor=' gradle.properties | cut -d= -f2 | tr -d '[:space:]')
+          version="${major_minor}.${GITHUB_RUN_NUMBER}"
+          echo "version=$version" >> "$GITHUB_OUTPUT"
+          echo "Plugin version: $version"
+
+      - name: Build plugin
+        run: |
+          chmod +x gradlew
+          ./gradlew test buildPlugin verifyPluginStructure \
+            -PpluginVersion=${{ steps.version.outputs.version }} \
+            -PlocalIdePath= \
+            --console=plain
+
+      - uses: actions/upload-artifact@v7
+        with:
+          name: github-actions-plugin-${{ steps.version.outputs.version }}
+          path: build/distributions/*.zip
+          if-no-files-found: error
+
+      - name: Upload test report
+        if: failure()
+        uses: actions/upload-artifact@v7
+        with:
+          name: test-report
+          path: build/reports/tests/
+
+  release:
+    name: Publish GitHub release
+    needs: build
+    if: github.event_name != 'pull_request' && github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/download-artifact@v8
+        with:
+          name: github-actions-plugin-${{ needs.build.outputs.version }}
+          path: dist
+
+      - name: Create release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+          VERSION: ${{ needs.build.outputs.version }}
+        run: |
+          tag="v$VERSION"
+          if gh release view "$tag" > /dev/null 2>&1; then
+            # Re-run of the same workflow run: replace the asset instead of failing.
+            gh release upload "$tag" dist/*.zip --clobber
+            exit 0
+          fi
+          notes=$(cat <<EOF
+          WebStorm plugin **GH Actions** $VERSION, built from ${GITHUB_SHA::7}.
+
+          **Install:** download \`github-actions-plugin-$VERSION.zip\` below, then in WebStorm open
+          *Settings | Plugins | ⚙ | Install Plugin from Disk…* and select the zip.
+
+          Author: [ravy.pro](http://ravy.pro)
+          EOF
+          )
+          gh release create "$tag" dist/*.zip \
+            --target "$GITHUB_SHA" \
+            --title "GH Actions plugin $VERSION" \
+            --notes "$notes" \
+            --generate-notes

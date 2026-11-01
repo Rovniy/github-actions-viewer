@@ -1,0 +1,35 @@
+<idea-plugin>
+    <id>games.xploit.github-actions</id>
+    <name>GH Actions</name>
+    <vendor email="hello@xploit.games" url="http://ravy.pro">ravy.pro</vendor>
+
+    <description><![CDATA[
+        Shows GitHub Actions workflow runs of the repository the current project is cloned from.
+        <ul>
+            <li>List of workflow runs with jobs and steps and their statuses</li>
+            <li>Job and step logs</li>
+            <li>Run a workflow (workflow_dispatch, with inputs), re-run all / failed jobs, re-run a single job,
+                re-run with debug logging, cancel a run</li>
+        </ul>
+        Authentication: token from Settings | Tools | GitHub Actions, GITHUB_TOKEN / GH_TOKEN environment
+        variables, or the GitHub CLI (<code>gh auth token</code>).
+    ]]></description>
+
+    <depends>com.intellij.modules.platform</depends>
+    <depends>Git4Idea</depends>
+
+    <extensions defaultExtensionNs="com.intellij">
+        <toolWindow id="GitHub Actions"
+                    anchor="bottom"
+                    icon="AllIcons.Vcs.Vendors.Github"
+                    doNotActivateOnStart="true"
+                    factoryClass="games.xploit.ghactions.ui.GhActionsToolWindowFactory"/>
+
+        <applicationConfigurable parentId="tools"
+                                 id="games.xploit.ghactions.settings"
+                                 displayName="GitHub Actions"
+                                 instance="games.xploit.ghactions.settings.GhActionsConfigurable"/>
+
+        <notificationGroup id="GitHub Actions" displayType="BALLOON"/>
+    </extensions>
+</idea-plugin>
